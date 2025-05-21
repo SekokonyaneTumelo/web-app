@@ -6,6 +6,7 @@ import random
 # Try importing required libraries with error handling
 try:
     import pandas as pd
+    import numpy as np
     import plotly.express as px
     from faker import Faker
     from sklearn.ensemble import IsolationForest
