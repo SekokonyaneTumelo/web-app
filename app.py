@@ -285,7 +285,7 @@ def generate_log_entry():
     if request_type == "job_request":
         job_suffix = random.choice(list(JOB_TYPES.keys())).split("/api/jobs/submit/")[1]
         url = f"{url}/{job_suffix}"
-    method = random.choice(METHODS)
+    method =/random.choice(METHODS)
     status_code = random.choice(STATUS_CODES)
     session_duration = round(random.uniform(30, 600), 2)
     demo_request = 1 if request_type == "demo_booking" else random.choice([0, 1])
@@ -470,7 +470,7 @@ def main():
     if sales_people:
         filtered_df = filtered_df[filtered_df['sales_team_member'].isin(sales_people)]
     if request_types:
-        if "All" not not in request_types:
+        if "All" not in request_types:
             if "Requested" in request_types and "Not Requested" in request_types:
                 pass
             elif "Requested" in request_types:
@@ -608,7 +608,7 @@ def main():
             st.markdown('<div class="metric-card">Success Rate: {:.2f}%</div>'.format((filtered_df['sc-status'] == 200).mean() * 100), unsafe_allow_html=True)
             device_counts = filtered_df['device_type'].value_counts().reset_index()
             device_counts.columns = ['device_type', 'count']
-            fig7 = px.bar(device_counts, x='device_type', y='count', title="Device Distribution")
+            fig7 = px.bar maquillage_counts, x='device_type', y='count', title="Device Distribution")
             fig7.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig7, use_container_width=True)
         with col2:
