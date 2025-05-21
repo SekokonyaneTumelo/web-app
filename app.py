@@ -1,21 +1,26 @@
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import numpy as np
-from faker import Faker
-from sklearn.ensemble import IsolationForest
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib import colors
-from streamlit_autorefresh import st_autorefresh
-import pycountry
-import hashlib
-import io
 import random
+
+# Try importing required libraries with error handling
+try:
+    import pandas as pd
+    import plotly.express as px
+    from faker import Faker
+    from sklearn.ensemble import IsolationForest
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors
+    from streamlit_autorefresh import st_autorefresh
+    import pycountry
+    import hashlib
+    import io
+except ImportError as e:
+    st.error(f"Failed to load required libraries: {str(e)}. Please ensure all dependencies are installed (check requirements.txt).")
+    st.stop()
 
 # Configuration
 st.set_page_config(
@@ -24,13 +29,12 @@ st.set_page_config(
     page_icon="https://www.freepik.com/free-vector/global-technology-concept-with-globe-circuit_12152352.htm"
 )
 faker = Faker()
-CSV_FILE = "web_server_logs.csv"
-LOG_COUNT = 50  # Number of synthetic logs to generate
+LOG_COUNT = 30  # Number of synthetic logs to generate
 START_DATE = datetime(2025, 1, 1)
-END_DATE = datetime.now()
+END_DATE = datetime(2025, 5, 21, 6, 35)  # 6:35 AM CAT (UTC+2), May 21, 2025
 
-# Auto-refresh every 120 seconds
-st_autorefresh(interval=120 * 1000, key="datarefresh")
+# Auto-refresh every 300 seconds (5 minutes)
+st_autorefresh(interval=300 * 1000, key="datarefresh")
 
 # Custom CSS with vibrant colors
 st.markdown("""
@@ -352,19 +356,6 @@ def detect_anomalies(logs):
     df['is_anomaly'] = df['is_anomaly'].apply(lambda x: 1 if x == -1 else 0)
     return df.to_dict(orient="records")
 
-def save_logs_to_csv(logs):
-    """Append cleaned logs to CSV file."""
-    df = pd.DataFrame(logs)
-    if os.path.exists(CSV_FILE):
-        existing_df = pd.read_csv(CSV_FILE)
-        existing_df = existing_df.fillna({
-            'revenue': 0, 'cost': 0, 'profit_loss': 0, 'session_duration': 0,
-            'converted': 0, 'demo_request_flag': 0, 'job_type': ''
-        })
-        df = pd.concat([existing_df, df], ignore_index=True)
-    df = df.drop_duplicates(subset=['timestamp', 'c-ip', 'request_type'], keep='last')
-    df.to_csv(CSV_FILE, index=False)
-
 def generate_sales_data():
     """Generate synthetic sales data with raw transactions and apply data cleaning."""
     logs = [generate_log_entry() for _ in range(LOG_COUNT)]
@@ -383,7 +374,6 @@ def generate_sales_data():
 def load_data():
     """Load or generate sales data."""
     df = generate_sales_data()
-    save_logs_to_csv(df.to_dict(orient='records'))
     if not df.empty:
         df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
         for col in ['revenue', 'cost', 'profit_loss', 'session_duration']:
@@ -433,7 +423,7 @@ def main():
         - **Filters**: Use the sidebar to filter data by date, region, sales person, or request type. Click 'Reset Filters' to clear.
         - **Charts**: Interact with charts to explore trends and insights.
         - **Export**: Download reports in CSV or PDF format.
-        - **Errors**: If data fails to load, try refreshing or uploading a CSV.
+        - **Data**: The dashboard uses synthetic data generated in real-time.
         """)
 
     col1, col2 = st.columns([5, 1])
@@ -456,9 +446,9 @@ def main():
     st.sidebar.markdown('<span class="help-tooltip" title="Select a date range to filter data">ℹ</span>', unsafe_allow_html=True)
     date_range = st.sidebar.date_input(
         "Date Range",
-        value=(datetime(2025, 1, 1), datetime(2025, 5, 20)),
+        value=(datetime(2025, 1, 1), datetime(2025, 5, 21)),
         min_value=datetime(2025, 1, 1),
-        max_value=datetime(2025, 5, 20),
+        max_value=datetime(2025, 5, 21),
         help="Select a date range for analysis."
     )
     regions = st.sidebar.multiselect("Region", options=sorted(df['region'].unique()), default=[])
@@ -466,33 +456,6 @@ def main():
     request_types = st.sidebar.multiselect("Request Type", options=["All", "Requested", "Not Requested"], default=["All"])
     if st.sidebar.button("Reset Filters"):
         st.rerun()
-
-    st.sidebar.header("Data Upload")
-    uploaded_file = st.sidebar.file_uploader("Upload CSV Logs", type="csv", key="upload")
-    if uploaded_file:
-        try:
-            uploaded_df = pd.read_csv(uploaded_file)
-            required_columns = ['timestamp', 'c-ip', 'cs-method', 'cs-uri-stem', 'sc-status', 'revenue', 'cost', 'profit_loss', 'country', 'converted']
-            missing_columns = [col for col in required_columns if col not in uploaded_df.columns]
-            if missing_columns:
-                st.sidebar.error(f"Invalid CSV format. Missing columns: {', '.join(missing_columns)}")
-            else:
-                uploaded_df['c-ip'] = uploaded_df['c-ip'].apply(hash_ip)
-                uploaded_df = uploaded_df.fillna({
-                    'revenue': 0, 'cost': 0, 'profit_loss': 0, 'session_duration': 0,
-                    'converted': 0, 'demo_request_flag': 0, 'job_type': ''
-                })
-                uploaded_df['revenue'] = uploaded_df['revenue'].clip(lower=0)
-                uploaded_df['cost'] = uploaded_df['cost'].clip(lower=0)
-                uploaded_df['profit_loss'] = uploaded_df['profit_loss'].clip(lower=-uploaded_df['revenue'])
-                uploaded_df['session_duration'] = uploaded_df['session_duration'].clip(lower=0, upper=600)
-                logs = uploaded_df.to_dict(orient="records")
-                logs = detect_anomalies(logs)
-                logs = [log for log in logs if log['is_anomaly'] == 0]
-                save_logs_to_csv(logs)
-                st.sidebar.success(f"File processed successfully. {len(logs)} records added.")
-        except Exception as e:
-            st.sidebar.error(f"Failed to process CSV: {str(e)}")
 
     filtered_df = df.copy()
     if isinstance(date_range, tuple) and len(date_range) == 2:
@@ -506,7 +469,7 @@ def main():
     if sales_people:
         filtered_df = filtered_df[filtered_df['sales_team_member'].isin(sales_people)]
     if request_types:
-        if "All" not in request_types:
+        if "All" not not in request_types:
             if "Requested" in request_types and "Not Requested" in request_types:
                 pass
             elif "Requested" in request_types:
@@ -535,13 +498,13 @@ def main():
         with col1:
             st.subheader("Revenue by Region")
             fig1 = px.bar(filtered_df.groupby('region')['revenue'].sum().reset_index(), x='region', y='revenue', title="Revenue by Region")
-            fig1.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig1.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig1, use_container_width=True)
         with col2:
             st.subheader("Top 5 Countries")
             top_countries = filtered_df.groupby('country')['revenue'].sum().nlargest(5).reset_index()
             fig2 = px.pie(top_countries, names='country', values='revenue', title="Top 5 Countries")
-            fig2.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig2.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig2, use_container_width=True)
 
         col1, col2 = st.columns(2)
@@ -549,12 +512,12 @@ def main():
             st.subheader("Sales by Customer Type")
             customer_type_sales = filtered_df.groupby('customer_type')['revenue'].sum().reset_index()
             fig12 = px.pie(customer_type_sales, names='customer_type', values='revenue', title="Sales by Customer Type")
-            fig12.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig12.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig12, use_container_width=True)
         with col2:
             st.subheader("Profit by Region")
             fig13 = px.bar(filtered_df.groupby('region')['profit_loss'].sum().reset_index(), x='region', y='profit_loss', title="Profit by Region")
-            fig13.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig13.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig13, use_container_width=True)
 
         col1, col2 = st.columns([2, 1])
@@ -563,7 +526,7 @@ def main():
             conversion_by_region = filtered_df.groupby('region')['converted'].mean().reset_index()
             conversion_by_region['converted'] = conversion_by_region['converted'] * 100
             fig14 = px.bar(conversion_by_region, x='region', y='converted', title="Conversion Rate by Region (%)")
-            fig14.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig14.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig14, use_container_width=True)
         with col2:
             st.write("")
@@ -575,12 +538,12 @@ def main():
         with col1:
             st.markdown('<div class="metric-card">Avg Revenue: ${:.2f}</div>'.format(filtered_df['revenue'].mean()), unsafe_allow_html=True)
             fig3 = px.line(filtered_df.groupby(filtered_df['timestamp'].dt.date)['revenue'].sum().reset_index(), x='timestamp', y='revenue', title="Revenue Trend")
-            fig3.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig3.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig3, use_container_width=True)
         with col2:
             st.markdown('<div class="metric-card">Profit Margin: {:.2f}%</div>'.format((filtered_df['profit_loss'].sum() / filtered_df['revenue'].sum() * 100) if filtered_df['revenue'].sum() > 0 else 0), unsafe_allow_html=True)
             fig4 = px.bar(filtered_df.groupby('sales_team_member')['profit_loss'].sum().reset_index(), x='sales_team_member', y='profit_loss', title="Profit by Team")
-            fig4.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig4.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig4, use_container_width=True)
 
         col1, col2 = st.columns([2, 1])
@@ -588,7 +551,7 @@ def main():
             st.subheader("Revenue Heatmap by Region and Time")
             heatmap_data = filtered_df.groupby([filtered_df['timestamp'].dt.date, 'region'])['revenue'].sum().reset_index()
             fig18 = px.density_heatmap(heatmap_data, x='timestamp', y='region', z='revenue', title="Revenue Heatmap by Region and Time")
-            fig18.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig18.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig18, use_container_width=True)
         with col2:
             st.write("")
@@ -601,12 +564,12 @@ def main():
             segment_counts = filtered_df['customer_segment'].value_counts().reset_index()
             segment_counts.columns = ['customer_segment', 'count']
             fig5 = px.pie(segment_counts, names='customer_segment', values='count', title="Customer Segments")
-            fig5.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig5.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig5, use_container_width=True)
         with col2:
             st.markdown('<div class="metric-card">Avg Session: {:.2f}s</div>'.format(filtered_df['session_duration'].mean()), unsafe_allow_html=True)
             fig6 = px.scatter(filtered_df, x='timestamp', y='session_duration', color='customer_type', title="Session Duration Over Time")
-            fig6.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig6.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig6, use_container_width=True)
 
         col1, col2 = st.columns([1, 2])
@@ -615,7 +578,7 @@ def main():
         with col2:
             demo_trend = filtered_df.groupby(filtered_df['timestamp'].dt.date)['demo_request_flag'].sum().reset_index()
             fig10 = px.line(demo_trend, x='timestamp', y='demo_request_flag', title="Demo Requests Over Time")
-            fig10.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig10.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig10, use_container_width=True)
 
         col1, col2 = st.columns([2, 1])
@@ -623,7 +586,7 @@ def main():
             st.subheader("Revenue Trend by Customer Segment")
             revenue_by_segment = filtered_df.groupby([filtered_df['timestamp'].dt.date, 'customer_segment'])['revenue'].sum().reset_index()
             fig15 = px.line(revenue_by_segment, x='timestamp', y='revenue', color='customer_segment', title="Revenue Trend by Customer Segment")
-            fig15.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig15.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig15, use_container_width=True)
         with col2:
             st.write("")
@@ -632,7 +595,7 @@ def main():
         with col1:
             st.subheader("User Behavior Clusters")
             fig19 = px.scatter(filtered_df, x='session_duration', y='revenue', color='behavior_cluster', title="User Behavior Clusters")
-            fig19.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig19.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig19, use_container_width=True)
         with col2:
             st.write("")
@@ -645,21 +608,21 @@ def main():
             device_counts = filtered_df['device_type'].value_counts().reset_index()
             device_counts.columns = ['device_type', 'count']
             fig7 = px.bar(device_counts, x='device_type', y='count', title="Device Distribution")
-            fig7.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig7.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig7, use_container_width=True)
         with col2:
             st.markdown('<div class="metric-card">OS Share: {}</div>'.format(filtered_df['operating_system'].mode()[0]), unsafe_allow_html=True)
             os_counts = filtered_df['operating_system'].value_counts().reset_index()
             os_counts.columns = ['operating_system', 'count']
             fig8 = px.pie(os_counts, names='operating_system', values='count', title="OS Distribution")
-            fig8.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig8.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig8, use_container_width=True)
 
         col1, col2 = st.columns([2, 1])
         with col1:
             st.subheader("Session Duration by Device Type")
             fig16 = px.box(filtered_df, x='device_type', y='session_duration', title="Session Duration by Device Type")
-            fig16.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig16.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig16, use_container_width=True)
         with col2:
             st.write("")
@@ -672,7 +635,7 @@ def main():
             anomaly_counts = filtered_df['is_anomaly'].value_counts().reset_index()
             anomaly_counts.columns = ['is_anomaly', 'count']
             fig9 = px.bar(anomaly_counts, x='is_anomaly', y='count', title="Anomaly Detection")
-            fig9.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig9.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig9, use_container_width=True)
         with col2:
             st.write("")
@@ -691,7 +654,7 @@ def main():
             st.subheader("Anomaly Distribution by Region")
             anomaly_by_region = filtered_df.groupby('region')['is_anomaly'].sum().reset_index()
             fig17 = px.bar(anomaly_by_region, x='region', y='is_anomaly', title="Anomaly Distribution by Region")
-            fig17.update_layout(height=300, paper_bgcolor="white", font_color="#333")
+            fig17.update_layout(height=250, paper_bgcolor="white", font_color="#333")
             st.plotly_chart(fig17, use_container_width=True)
         with col2:
             st.write("")
